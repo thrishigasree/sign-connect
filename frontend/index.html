@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignConnect – AI Sign Language to Text Translator</title>
+  
+  <!-- MediaPipe Hands & Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+            <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+            <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>SignConnect</h1>
+          <span class="brand-badge">AI Sign-to-Text</span>
+        </div>
+      </div>
+
+      <div class="nav-stats">
+        <div class="status-indicator" id="backendStatus">
+          <span class="status-dot offline"></span>
+          <span class="status-label">Checking Backend...</span>
+        </div>
+        <div class="model-badge">
+          <span class="model-name">Sign Transformer</span>
+          <span class="model-tech">21 Classes &bull; 30 Frames</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-layout">
+    <!-- Left Column: Video & Landmark Tracking -->
+    <section class="panel camera-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+          <h2>Live Hand Tracking</h2>
+        </div>
+        <div class="tracking-pill" id="handTrackingPill">
+          <span class="pill-dot gray"></span>
+          <span class="pill-text">Camera Off</span>
+        </div>
+      </div>
+
+      <!-- Viewport -->
+      <div class="viewport-wrapper">
+        <video id="webcamVideo" playsinline muted></video>
+        <canvas id="outputCanvas"></canvas>
+        
+        <!-- Overlay Placeholder when camera stopped -->
+        <div class="viewport-overlay" id="viewportPlaceholder">
+          <div class="placeholder-content">
+            <div class="camera-icon-large">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <h3>Camera is Currently Off</h3>
+            <p>Click "Start Camera" below to begin real-time hand-landmark recognition.</p>
+            <button class="btn btn-primary" id="startCameraBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Start Camera
+            </button>
+          </div>
+        </div>
+
+        <!-- Missing hands prompt (shown during active tracking when no hands in frame) -->
+        <div class="hands-prompt hidden" id="handsPrompt">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>Position hands inside camera frame</span>
+        </div>
+      </div>
+
+      <!-- Camera Action Bar -->
+      <div class="camera-controls">
+        <button class="btn btn-primary" id="toggleCameraBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="toggleCameraText">Start Camera</span>
+        </button>
+
+        <button class="btn btn-secondary" id="flipCameraBtn" title="Mirror / Flip Video">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-7l3-3m-3 3l3 3M4 17h7l-3 3m3-3l-3-3"/></svg>
+          Flip Mirror
+        </button>
+
+        <div class="fps-counter" id="fpsDisplay">
+          <span>FPS: </span><strong id="fpsVal">0</strong>
+        </div>
+      </div>
+
+      <!-- Buffer Collection Progress Bar -->
+      <div class="buffer-section">
+        <div class="buffer-header">
+          <span class="buffer-label">Gesture Frame Sequence Buffer</span>
+          <span class="buffer-count" id="bufferCount">0 / 30 frames</span>
+        </div>
+        <div class="buffer-bar-track">
+          <div class="buffer-bar-fill" id="bufferFill" style="width: 0%;"></div>
+        </div>
+        <p class="buffer-hint">Accumulates 30 continuous frames with 126 normalized 3D hand landmarks for Transformer inference.</p>
+      </div>
+
+      <!-- Supported Vocabulary Collapsible -->
+      <div class="vocab-accordion">
+        <div class="vocab-header" id="vocabToggle">
+          <span>Supported Signs (21 Classes)</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="vocab-body" id="vocabTags">
+          <!-- Dynamically filled with tags -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Recognition, Sentence Builder & History -->
+    <section class="panel right-panel">
+      <!-- 1. Real-time Inference Display -->
+      <div class="card result-card">
+        <div class="card-header">
+          <span class="card-eyebrow">Real-Time Inference</span>
+          <span class="confidence-tag" id="confidenceTag">Confidence: --%</span>
+        </div>
+
+        <div class="result-main">
+          <div class="sign-display">
+            <span class="sign-text" id="predictedSignText">READY</span>
+            <span class="sign-subtext" id="inferenceSubtext">Start camera and perform a sign</span>
+          </div>
+
+          <div class="confidence-meter-wrapper">
+            <div class="meter-bar-track">
+              <div class="meter-bar-fill" id="confidenceBar" style="width: 0%;"></div>
+            </div>
+            <div class="meter-labels">
+              <span>Threshold: 70%</span>
+              <strong id="confidencePercent">0%</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Candidates -->
+        <div class="candidates-list" id="candidatesList">
+          <!-- Dynamically populated candidate bars -->
+        </div>
+
+        <div class="card-footer-actions">
+          <button class="btn btn-sm btn-outline" id="speakSignBtn" title="Speak this sign out loud">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            Speak Sign
+          </button>
+          <button class="btn btn-sm btn-primary" id="commitSignBtn" title="Add sign to sentence">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add to Sentence
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. Sentence Builder Card -->
+      <div class="card sentence-card">
+        <div class="card-header">
+          <div class="panel-title-inline">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <h3>Sentence Builder</h3>
+          </div>
+          <div class="sentence-mode-selector">
+            <button class="mode-btn active" data-mode="nlp" id="modeNlpBtn" title="Local Computational NLP Engine">⚡ NLP Engine</button>
+            <button class="mode-btn" data-mode="ai_model" id="modeAiBtn" title="Generative AI Model (LLaMA 3.1)">🧠 AI Model</button>
+            <button class="mode-btn" data-mode="raw" id="modeRawBtn" title="Raw Sign Stream">Raw Gloss</button>
+          </div>
+        </div>
+
+        <!-- AI Engine Bar -->
+        <div class="ai-controls-bar">
+          <div class="ai-controls-left">
+            <span class="engine-badge" id="sentenceMethodBadge">⚡ NLP Engine Active</span>
+            <select id="targetLanguage" class="language-dropdown" title="Target Language">
+              <option value="English" selected>English</option>
+              <option value="Spanish">Spanish (Español)</option>
+              <option value="French">French (Français)</option>
+              <option value="German">German (Deutsch)</option>
+              <option value="Hindi">Hindi (हिन्दी)</option>
+              <option value="Tamil">Tamil (தமிழ்)</option>
+            </select>
+          </div>
+          <button class="btn btn-sm btn-outline" id="aiKeyConfigBtn" title="Configure Groq API Key">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            AI Key
+          </button>
+        </div>
+
+        <!-- Inline Key Input (hidden by default) -->
+        <div class="api-key-panel hidden" id="apiKeyPanel">
+          <div class="api-key-input-wrapper">
+            <input type="password" id="groqApiKeyInput" placeholder="Enter Groq API Key (gsk_...) for LLaMA-3.1" autocomplete="off" />
+            <button class="btn btn-sm btn-primary" id="saveApiKeyBtn">Save</button>
+            <button class="btn btn-sm btn-secondary" id="clearApiKeyBtn">Clear</button>
+          </div>
+          <span class="api-key-hint">Optional: Powers cloud LLaMA 3.1. Local NLP engine always works offline for free without keys.</span>
+        </div>
+
+        <!-- Sentence Box -->
+        <div class="sentence-box-wrapper">
+          <textarea id="sentenceDisplay" placeholder="Recognized words will form a sentence here..." rows="3"></textarea>
+          <div class="sentence-tokens-preview" id="tokensPreview">
+            <!-- Token chips -->
+          </div>
+        </div>
+
+        <!-- Controls Toolbar -->
+        <div class="sentence-toolbar">
+          <div class="toolbar-group">
+            <button class="btn btn-secondary btn-sm" id="addSpaceBtn" title="Add space">
+              Space
+            </button>
+            <button class="btn btn-secondary btn-sm" id="backspaceBtn" title="Remove last word">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
+              Backspace
+            </button>
+            <button class="btn btn-danger btn-sm" id="clearSentenceBtn" title="Clear all words">
+              Clear
+            </button>
+          </div>
+
+          <div class="toolbar-group">
+            <button class="btn btn-primary btn-sm" id="predictSentenceBtn" title="Predict & Refine Sentence using NLP / AI">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Predict Sentence
+            </button>
+            <button class="btn btn-outline btn-sm" id="copySentenceBtn" title="Copy to clipboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+            </button>
+            <button class="btn btn-accent btn-sm" id="speakSentenceBtn" title="Speak entire sentence">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              Speak
+            </button>
+          </div>
+        </div>
+
+        <div class="auto-commit-toggle">
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoCommitToggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label">Auto-append high confidence signs (&ge; 75%)</span>
+        </div>
+      </div>
+
+      <!-- 3. Recognition History -->
+      <div class="card history-card">
+        <div class="card-header">
+          <div class="panel-title-inline">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <h3>Recognition History</h3>
+          </div>
+          <button class="btn-link" id="clearHistoryBtn">Clear Log</button>
+        </div>
+
+        <div class="history-list" id="historyList">
+          <div class="empty-history" id="emptyHistoryPrompt">
+            No signs recognized yet.
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Error / Notification Toast -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
